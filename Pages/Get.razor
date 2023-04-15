@@ -1,0 +1,219 @@
+﻿@page "/get"
+@implements IDisposable
+
+@using System.Net.Http.Headers ;
+@using BlazorApp.Shared.AndroidIAP ;
+@using Newtonsoft.Json ;
+@using Newtonsoft.Json.Linq ;
+@using System.Text ;
+
+@inject IHttpClientFactory _clientFactory
+<PageTitle>Get</PageTitle>
+
+@if ( result == null ) {
+    <p>Loading...</p>
+    <p class="spinner"></p>
+}
+else {
+    <p>@result</p>
+}
+
+
+@code {
+    private string? result = null ;
+    private int deliveryId = 87 ;
+        private const string RawHost = "back.iloka.vn" ;
+    private readonly string Host = $"http://{RawHost}" ;
+        private const string Host2 = "http://103.153.215.232" ;
+        private const string Port = "9999" ;
+        private const string ObtainOrder = "/api/order/update/" ;
+        private const string LoginApi = "/api/delivery/login/" ;
+        private const string FindDelivery = "/api/delivery/" ;
+        private const string DriverSearchPage = "/api/delivery/list?search&page=" ;
+        private const string TotalOrder = "/api/dayDeliveryRevenue/listFindByDayDeliveryRevenue/?fromDate={0:yyyy-MM-dd}-00:00:00&toDate={1:yyyy-MM-dd}-23:59:59&deliveryId={2}" ;
+        private const string GetOrderDetailInfo = "/api/orderDetail/listFindByOrderId/" ;
+        private const string GetUnTakenOrder = "/api/order/list?search&page={0}&size=2" ;
+        private const string GetDriverInfoByOrderId = "/api/chatApp/listFindByOrderId/" ;
+        private const string ListFindByDeliveryId = "/api/orderDelivery/listFindByDeliveryId/" ;
+        private const string UserAgent = "Mozilla/5.0 (Linux; Android 11; 2201117TY) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Mobile Safari/537.36" ;
+        private const string ChatAppAdd = "/api/chatApp/add" ;
+
+    private CancellationTokenSource _cts = new() ;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (id, total) = await GetIdOfUnTakenOrder( -1, 12_000, _cts.Token ) ;
+        var confirmId = await TakeOrder( id.ToString(), deliveryId.ToString() ) ;
+        result = string.IsNullOrEmpty( confirmId ) ? "Failed" : confirmId ;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel() ;
+        _cts.Dispose() ;
+    }
+
+    private static void UpdateOptionHeader( HttpRequestHeaders header, bool randomUserAgent )
+    {
+        var random = new Random( DateTime.Now.Second ) ;
+        var num = random.Next( 0, Global.UserAgent.Count ) ;
+        var userAgent = randomUserAgent ? $"{Global.UserAgent[ num ]}" : UserAgent ;
+        header.Add( "Host", $"{RawHost}:{Port}" ) ;
+        header.Add( "Connection", "keep-alive" ) ;
+        header.Add( "Access-Control-Request-Method", "POST" ) ;
+        header.Add( "Origin", "http://localhost" ) ;
+        header.Add( "User-Agent", userAgent ) ;
+        header.Add( "Access-Control-Request-Headers", "content-type" ) ;
+        header.Add( "Accept", "*/*" ) ;
+        header.Add( "Accept-Encoding", "gzip, deflate" ) ;
+        header.Add( "Accept-Language", "en-US" ) ;
+        header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+    }
+
+    private static void UpdatePostHeader( HttpRequestHeaders header, string body, bool randomUserAgent )
+    {
+        var random = new Random( DateTime.Now.Second ) ;
+        var num = random.Next( 0, Global.UserAgent.Count ) ;
+        var userAgent = randomUserAgent ? $"{Global.UserAgent[ num ]}" : UserAgent ;
+        header.Add( "Host", $"{RawHost}:{Port}" ) ;
+        header.Add( "Connection", "keep-alive" ) ;
+        header.Add( "Content-Length", $"{body.Length}" ) ;
+        header.Add( "Accept", "application/json, text/plain, */*" ) ;
+        header.Add( "Origin", "http://localhost" ) ;
+        header.Add( "User-Agent", userAgent ) ;
+        header.Add( "Content-Type", "application/json" ) ;
+        header.Add( "Referer", "http://localhost/home" ) ;
+        header.Add( "Accept-Encoding", "gzip, deflate" ) ;
+        header.Add( "Accept-Language", "en-US" ) ;
+        header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+    }
+
+    private async Task<string> TakeOrder( string orderId, string deliverId )
+    {
+        const string ConfirmOrderBody = @"{{
+	""id"": {0},
+	""deliveryId"": ""{1}"",
+	""status"": ""CONFIRM"",
+	""typeChange"": false
+}}" ;
+
+        const string GetOrderBody = @"{{
+	""id"": {0},
+	""deliveryId"": ""{1}"",
+	""status"": ""PENDDING""
+}}" ;
+
+        const string ChatBody = @"{{
+	""orderId"": {0},
+	""senderId"": ""{1}"",
+	""receiveId"": {2},
+	""fromApp"": ""DELIVERY"",
+	""toApp"": ""CUSTOMER"",
+	""message"": ""Nguyễn Xuân Hoà đang trên đường giao hàng cho quý khách. Xin vui lòng giữ điện thoại để được cập nhật tình hình đơn nếu có thay đổi. Cảm ơn quý khách."",
+	""createdDate"": ""{3}""
+  } }" ;
+        var http = _clientFactory.CreateClient() ;
+        http.BaseAddress = new Uri( "http://103.153.215.232:9999" ) ;
+        var tempHttp = _clientFactory.CreateClient() ;
+        tempHttp.BaseAddress = new Uri( "http://103.153.215.232:9999" ) ;
+    // const string oldOrder = "Đơn hàng này đã có người khác tiếp nhận!" ;
+        var url = $"{ObtainOrder}" ;
+    // Notify
+        UpdateOptionHeader( http.DefaultRequestHeaders, false ) ;
+        await http.SendAsync( new HttpRequestMessage( HttpMethod.Options, ObtainOrder ) ) ;
+    // Confirm
+        var confirmBody = string.Format( ConfirmOrderBody, orderId, deliverId ) ;
+        UpdatePostHeader( http.DefaultRequestHeaders, confirmBody, false ) ;
+        var response = await http.PostAsync( ObtainOrder, new StringContent( confirmBody, Encoding.UTF8, "application/json" ) ) ;
+        if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData
+             || jsonData[ "error" ]?.Value<bool>() == true ) return string.Empty ;
+    // Get
+        var getBody = string.Format( GetOrderBody, orderId, deliverId ) ;
+        response = await http.PostAsync( ObtainOrder, new StringContent( getBody, Encoding.UTF8, "application/json" ) ) ;
+        if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData2
+             || jsonData2[ "error" ]?.Value<bool>() == true ) return string.Empty ;
+    // Re-check
+        UpdateGetHeader( tempHttp.DefaultRequestHeaders, true ) ;
+        response = await tempHttp.GetAsync( $"{ListFindByDeliveryId}{deliverId}" ) ;
+        if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData3
+             || jsonData3[ "resultData" ]?[ "id" ]?.Value<string>() != orderId ) return string.Empty ;
+    // Update chat
+        UpdateOptionHeader( http.DefaultRequestHeaders, false ) ;
+        await http.SendAsync( new HttpRequestMessage( HttpMethod.Options, ChatAppAdd ) ) ;
+    // Confirm
+        var time = DateTime.UtcNow.ToString( "yyyy-MM-ddThh:mm:ss.fffZ" ) ;
+        var receiverId = "-1" ;
+        if ( jsonData3[ "resultData" ]?[ "customer" ]?[ "id" ]?.Value<int>() is not { } rid ) return string.Empty ;
+        receiverId = rid.ToString() ;
+        var chatBody = string.Format( ChatBody, orderId, deliverId, receiverId, time ) ;
+        await http.PostAsync( ChatAppAdd, new StringContent( chatBody, Encoding.UTF8, "application/json" ) ) ;
+        return jsonData3[ "resultData" ]?.Value<string>() ;
+    }
+
+    private static void UpdateGetHeader( HttpRequestHeaders header, bool randomUserAgent )
+    {
+        var random = new Random( DateTime.Now.Second ) ;
+        var num = random.Next( 0, Global.UserAgent.Count ) ;
+        var userAgent = randomUserAgent ? $"{Global.UserAgent[ num ]}" : UserAgent ;
+        header.Add( "Host", $"{RawHost}:{Port}" ) ;
+        header.Add( "Connection", "keep-alive" ) ;
+        header.Add( "Accept", "application/json, text/plain, */*" ) ;
+        header.Add( "Origin", "http://localhost" ) ;
+        header.Add( "User-Agent", userAgent ) ;
+        header.Add( "Referer", "http://localhost/home" ) ;
+        header.Add( "Accept-Encoding", "gzip, deflate" ) ;
+        header.Add( "Accept-Language", "en-US" ) ;
+        header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+    }
+
+    private async Task<(int newestOrderId, int totalOrderNumber)> GetIdOfUnTakenOrder( int guessingNumber, int minFeeShip, CancellationToken token )
+    {
+        try {
+            var http = _clientFactory.CreateClient() ;
+            http.BaseAddress = new Uri( "http://103.153.215.232:9999" ) ;
+            UpdateGetHeader( http.DefaultRequestHeaders, true ) ;
+
+            var random = new Random( DateTime.Now.Second ) ;
+            while ( ! token.IsCancellationRequested ) {
+                await Task.Delay( TimeSpan.FromSeconds( random.NextDouble() % 0.2 + 0.2 ), token ) ;
+
+                if ( token.IsCancellationRequested ) break ;
+
+                var page = ( guessingNumber != -1 ? guessingNumber.ToString() : string.Empty ) ;
+                var url = $"/api/order/list?search&page={page}&size=2" ;
+                var response = await http.GetAsync( url, token ) ;
+
+                if ( token.IsCancellationRequested ) break ;
+
+                if ( await response.Content.ReadAsStringAsync( token ) is not { } str ) return ( -1, -1 ) ;
+                if ( JsonConvert.DeserializeObject( str ) is not JObject jsonData ) return ( -1, -1 ) ;
+
+                var number = jsonData?[ "resultData" ]?[ "number" ]?.Value<int>() ?? -1 ;
+                var totalPages = jsonData?[ "resultData" ]?[ "totalPages" ]?.Value<int>() ?? -1 ;
+
+                var arr = jsonData?[ "resultData" ]?[ "content" ] ;
+                var data = arr[ arr.Count() - 1 ] ;
+
+                var newestOrderId = guessingNumber != -1 ? data?[ "id" ]?.Value<int>() ?? -1 : -1 ;
+                guessingNumber = totalPages - 1 ;
+                if ( number != totalPages - 1 ) continue ;
+
+                var isDesiredLocation = data?[ "endLocation" ]?.Value<string>()?.Contains( "Long Khánh" ) ?? false ;
+                if ( ! isDesiredLocation ) continue ;
+
+                var isUnTakenOrderId = data?[ "status" ]?.Value<string>()?.ToLower() == "create" ;
+                if ( ! isUnTakenOrderId ) continue ;
+
+                var isMoreFee = ( data?[ "feeShip" ]?.Value<int>() ?? -1 ) >= minFeeShip ;
+                if ( ! isMoreFee ) continue ;
+
+                return ( newestOrderId, totalPages - 1 ) ;
+            }
+        }
+        catch ( Exception ex ) {
+        }
+
+        return ( -1, -1 ) ;
+    }
+
+}
