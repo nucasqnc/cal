@@ -1,39 +1,250 @@
-name: Deploy Blazor WASM to GitHub Page
-env:
-  PUBLISH_DIR: bin/Release/net6.0/publish/wwwroot
+@page "/get"
+@implements IDisposable
 
-# Controls when the action will run
-on:
-  push:
-    branches: [ main ]
+@using System.Net.Http.Headers ;
+@using BlazorApp.Shared.AndroidIAP ;
+@using Newtonsoft.Json ;
+@using Newtonsoft.Json.Linq ;
+@using System.Text ;
+@using System.Security.Cryptography ;
 
-jobs:
-  build:
-    # runs-on: self-hosted
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
+@inject IHttpClientFactory _clientFactory
+<PageTitle>Get</PageTitle>
 
-    - name: Publish application
-      run: dotnet publish -c Release
-    
-    # base href url value should be changed so that resources like CSS and scripts can load properly. 
-    - name: Rewrite base href
-      if: success()
-      uses: SteveSandersonMS/ghaction-rewrite-base-href@v1
-      with:
-        html_path: ${{ env.PUBLISH_DIR }}/index.html
-        base_href: .
-        
-    # add .nojekyll file to tell GitHub pages to not treat this as a Jekyll project. (Allow files and folders starting with an underscore)
-    - name: Add .nojekyll file
-      run: touch ${{ env.PUBLISH_DIR }}/.nojekyll
+@if ( pressed == false ) {
+    <div>
+        <label for="id">What are you waiting for:</label>
+        <input id="password" type="password" autocomplete="off" @bind-value="password"/>
+    </div>
+    <button class="btn btn-primary" @onclick="GetData ">Click to know</button>
+}
+else {
+@if ( result == null ) {
+    <p>Loading...</p>
+    <p class="spinner"></p>
+}
+else {
+    <p>@result</p>
+}
+}
 
-    - name: Commit to GitHub pages Repo
-      if: success()
-      uses: crazy-max/ghaction-github-pages@v1.5.1
-      with:
-        target_branch: gh-pages
-        build_dir: ${{ env.PUBLISH_DIR }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+@code {
+    private string password ;
+    private bool pressed = false ;
+        private const string hash = "a986bce2133c38390939f5bff20702be924daacc4b4346bf14846a4e8ad15f0f" ;
+    private string? result = null ;
+    private int deliveryId = 87 ;
+        private const string RawHost = "back.iloka.vn" ;
+        private const string Host2 = "http://103.153.215.232" ;
+        private const string Port = "9999" ;
+        private const string ObtainOrder = "/api/order/update/" ;
+        private const string ListFindByDeliveryId = "/api/orderDelivery/listFindByDeliveryId/" ;
+        private const string UserAgent = "Mozilla/5.0 (Linux; Android 11; 2201117TY) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Mobile Safari/537.36" ;
+        private const string ChatAppAdd = "/api/chatApp/add" ;
+        private const string Cors = "https://cors-anywhere.herokuapp.com" ;
+        private const string Origin = $"{Cors}/{Host2}:{Port}" ;
+
+    private CancellationTokenSource _cts = new() ;
+
+    protected override async Task OnInitializedAsync()
+    {
+    }
+
+    private string GetHash( string data )
+    {
+        using ( SHA256 sha256Hash = SHA256.Create() ) {
+            byte[] bytes = sha256Hash.ComputeHash( Encoding.UTF8.GetBytes( data ) ) ;
+
+            StringBuilder builder = new StringBuilder() ;
+            for ( int i = 0 ; i < bytes.Length ; i++ ) {
+                builder.Append( bytes[ i ].ToString( "x2" ) ) ;
+            }
+            return builder.ToString() ;
+        }
+    }
+
+    private async Task GetData()
+    {
+        if ( GetHash( password ) != hash ) return ;
+        pressed = true ;
+        var (id, total) = await GetIdOfUnTakenOrder( -1, 12_000, _cts.Token ) ;
+        var confirmId = await TakeOrder( id.ToString(), deliveryId.ToString() ) ;
+        result = string.IsNullOrEmpty( confirmId ) ? "Failed" : confirmId ;
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel() ;
+        _cts.Dispose() ;
+    }
+
+    private static void UpdateOptionHeader( HttpRequestHeaders header, bool randomUserAgent )
+    {
+        var random = new Random( DateTime.Now.Second ) ;
+        var num = random.Next( 0, Global.UserAgent.Count ) ;
+        var userAgent = randomUserAgent ? $"{Global.UserAgent[ num ]}" : UserAgent ;
+        header.Add( "Host", $"{RawHost}:{Port}" ) ;
+        header.Add( "Connection", "keep-alive" ) ;
+        header.Add( "Access-Control-Request-Method", "POST" ) ;
+        header.Add( "Origin", "http://localhost" ) ;
+        header.Add( "User-Agent", userAgent ) ;
+        header.Add( "Access-Control-Request-Headers", "content-type" ) ;
+        header.Add( "Accept", "*/*" ) ;
+        header.Add( "Accept-Encoding", "gzip, deflate" ) ;
+        header.Add( "Accept-Language", "en-US" ) ;
+        header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+        header.Add( "Origin", "" ) ;
+        header.Add( "X-Requested-With", "" ) ;
+    }
+
+    private static void UpdatePostHeader( HttpRequestHeaders header, string body, bool randomUserAgent )
+    {
+        var random = new Random( DateTime.Now.Second ) ;
+        var num = random.Next( 0, Global.UserAgent.Count ) ;
+        var userAgent = randomUserAgent ? $"{Global.UserAgent[ num ]}" : UserAgent ;
+        header.Add( "Host", $"{RawHost}:{Port}" ) ;
+        header.Add( "Connection", "keep-alive" ) ;
+        header.Add( "Content-Length", $"{body.Length}" ) ;
+        header.Add( "Accept", "application/json, text/plain, */*" ) ;
+        header.Add( "Origin", "http://localhost" ) ;
+        header.Add( "User-Agent", userAgent ) ;
+        header.Add( "Content-Type", "application/json" ) ;
+        header.Add( "Referer", "http://localhost/home" ) ;
+        header.Add( "Accept-Encoding", "gzip, deflate" ) ;
+        header.Add( "Accept-Language", "en-US" ) ;
+        header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+        header.Add( "Origin", "" ) ;
+        header.Add( "X-Requested-With", "" ) ;
+    }
+
+    private async Task<string> TakeOrder( string orderId, string deliverId )
+    {
+        const string ConfirmOrderBody = @"{{
+	""id"": {0},
+	""deliveryId"": ""{1}"",
+	""status"": ""CONFIRM"",
+	""typeChange"": false
+}}" ;
+
+        const string GetOrderBody = @"{{
+	""id"": {0},
+	""deliveryId"": ""{1}"",
+	""status"": ""PENDDING""
+}}" ;
+
+        const string ChatBody = @"{{
+	""orderId"": {0},
+	""senderId"": ""{1}"",
+	""receiveId"": {2},
+	""fromApp"": ""DELIVERY"",
+	""toApp"": ""CUSTOMER"",
+	""message"": ""Nguyễn Xuân Hoà đang trên đường giao hàng cho quý khách. Xin vui lòng giữ điện thoại để được cập nhật tình hình đơn nếu có thay đổi. Cảm ơn quý khách."",
+	""createdDate"": ""{3}""
+  } }" ;
+        var http = _clientFactory.CreateClient() ;
+        http.BaseAddress = new Uri( "https://cors-anywhere.herokuapp.com" ) ;
+        var tempHttp = _clientFactory.CreateClient() ;
+        tempHttp.BaseAddress = new Uri( "https://cors-anywhere.herokuapp.com" ) ;
+    // const string oldOrder = "Đơn hàng này đã có người khác tiếp nhận!" ;
+    // Notify
+        UpdateOptionHeader( http.DefaultRequestHeaders, false ) ;
+        await http.SendAsync( new HttpRequestMessage( HttpMethod.Options, $"{Origin}{ObtainOrder}" ) ) ;
+    // Confirm
+        var confirmBody = string.Format( ConfirmOrderBody, orderId, deliverId ) ;
+        UpdatePostHeader( http.DefaultRequestHeaders, confirmBody, false ) ;
+        var response = await http.PostAsync( $"{Origin}{ObtainOrder}", new StringContent( confirmBody, Encoding.UTF8, "application/json" ) ) ;
+        if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData
+             || jsonData[ "error" ]?.Value<bool>() == true ) return string.Empty ;
+    // Get
+        var getBody = string.Format( GetOrderBody, orderId, deliverId ) ;
+        response = await http.PostAsync( $"{Origin}{ObtainOrder}", new StringContent( getBody, Encoding.UTF8, "application/json" ) ) ;
+        if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData2
+             || jsonData2[ "error" ]?.Value<bool>() == true ) return string.Empty ;
+    // Re-check
+        UpdateGetHeader( tempHttp.DefaultRequestHeaders, true ) ;
+        response = await tempHttp.GetAsync( $"{Origin}{ListFindByDeliveryId}{deliverId}" ) ;
+        if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData3
+             || jsonData3[ "resultData" ]?[ "id" ]?.Value<string>() != orderId ) return string.Empty ;
+    // Update chat
+        UpdateOptionHeader( http.DefaultRequestHeaders, false ) ;
+        await http.SendAsync( new HttpRequestMessage( HttpMethod.Options, $"{Origin}{ChatAppAdd}" ) ) ;
+    // Confirm
+        var time = DateTime.UtcNow.ToString( "yyyy-MM-ddThh:mm:ss.fffZ" ) ;
+        var receiverId = "-1" ;
+        if ( jsonData3[ "resultData" ]?[ "customer" ]?[ "id" ]?.Value<int>() is not { } rid ) return string.Empty ;
+        receiverId = rid.ToString() ;
+        var chatBody = string.Format( ChatBody, orderId, deliverId, receiverId, time ) ;
+        await http.PostAsync( $"{Origin}{ChatAppAdd}", new StringContent( chatBody, Encoding.UTF8, "application/json" ) ) ;
+        return jsonData3[ "resultData" ]?.Value<string>() ;
+    }
+
+    private static void UpdateGetHeader( HttpRequestHeaders header, bool randomUserAgent )
+    {
+        var random = new Random( DateTime.Now.Second ) ;
+        var num = random.Next( 0, Global.UserAgent.Count ) ;
+        var userAgent = randomUserAgent ? $"{Global.UserAgent[ num ]}" : UserAgent ;
+        header.Add( "Host", $"{RawHost}:{Port}" ) ;
+        header.Add( "Connection", "keep-alive" ) ;
+        header.Add( "Accept", "application/json, text/plain, */*" ) ;
+        header.Add( "Origin", "http://localhost" ) ;
+        header.Add( "User-Agent", userAgent ) ;
+        header.Add( "Referer", "http://localhost/home" ) ;
+        header.Add( "Accept-Encoding", "gzip, deflate" ) ;
+        header.Add( "Accept-Language", "en-US" ) ;
+        header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+        header.Add( "Origin", "" ) ;
+        header.Add( "X-Requested-With", "" ) ;
+    }
+
+    private async Task<(int newestOrderId, int totalOrderNumber)> GetIdOfUnTakenOrder( int guessingNumber, int minFeeShip, CancellationToken token )
+    {
+        try {
+            var http = _clientFactory.CreateClient() ;
+            http.BaseAddress = new Uri( "https://cors-anywhere.herokuapp.com" ) ;
+            UpdateGetHeader( http.DefaultRequestHeaders, true ) ;
+
+            var random = new Random( DateTime.Now.Second ) ;
+            while ( ! token.IsCancellationRequested ) {
+                await Task.Delay( TimeSpan.FromSeconds( random.NextDouble() % 0.2 + 0.2 ), token ) ;
+
+                if ( token.IsCancellationRequested ) break ;
+
+                var page = ( guessingNumber != -1 ? guessingNumber.ToString() : string.Empty ) ;
+                var url = $"{Origin}/api/order/list?search&page={page}&size=2" ;
+                var response = await http.GetAsync( url, token ) ;
+
+                if ( token.IsCancellationRequested ) break ;
+                Console.WriteLine( response ) ;
+                if ( await response.Content.ReadAsStringAsync( token ) is not { } str ) return ( -1, -1 ) ;
+                if ( JsonConvert.DeserializeObject( str ) is not JObject jsonData ) return ( -1, -1 ) ;
+                Console.WriteLine( str ) ;
+                var number = jsonData?[ "resultData" ]?[ "number" ]?.Value<int>() ?? -1 ;
+                var totalPages = jsonData?[ "resultData" ]?[ "totalPages" ]?.Value<int>() ?? -1 ;
+
+                var arr = jsonData?[ "resultData" ]?[ "content" ] ;
+                var data = arr[ arr.Count() - 1 ] ;
+
+                var newestOrderId = guessingNumber != -1 ? data?[ "id" ]?.Value<int>() ?? -1 : -1 ;
+                guessingNumber = totalPages - 1 ;
+                if ( number != totalPages - 1 ) continue ;
+
+                var isDesiredLocation = data?[ "endLocation" ]?.Value<string>()?.Contains( "Long Khánh" ) ?? false ;
+                if ( ! isDesiredLocation ) continue ;
+
+                var isUnTakenOrderId = data?[ "status" ]?.Value<string>()?.ToLower() == "create" ;
+                if ( ! isUnTakenOrderId ) continue ;
+
+                var isMoreFee = ( data?[ "feeShip" ]?.Value<int>() ?? -1 ) >= minFeeShip ;
+                if ( ! isMoreFee ) continue ;
+
+                return ( newestOrderId, totalPages - 1 ) ;
+            }
+        }
+        catch ( Exception ex ) {
+        }
+
+        return ( -1, -1 ) ;
+    }
+
+}
