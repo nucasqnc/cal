@@ -1,4 +1,4 @@
-﻿@page "/get"
+@page "/get"
 @implements IDisposable
 
 @using System.Net.Http.Headers ;
@@ -22,21 +22,23 @@ else {
 @code {
     private string? result = null ;
     private int deliveryId = 87 ;
-        private const string RawHost = "back.iloka.vn" ;
+    private const string RawHost = "back.iloka.vn" ;
     private readonly string Host = $"http://{RawHost}" ;
-        private const string Host2 = "http://103.153.215.232" ;
-        private const string Port = "9999" ;
-        private const string ObtainOrder = "/api/order/update/" ;
-        private const string LoginApi = "/api/delivery/login/" ;
-        private const string FindDelivery = "/api/delivery/" ;
-        private const string DriverSearchPage = "/api/delivery/list?search&page=" ;
-        private const string TotalOrder = "/api/dayDeliveryRevenue/listFindByDayDeliveryRevenue/?fromDate={0:yyyy-MM-dd}-00:00:00&toDate={1:yyyy-MM-dd}-23:59:59&deliveryId={2}" ;
-        private const string GetOrderDetailInfo = "/api/orderDetail/listFindByOrderId/" ;
-        private const string GetUnTakenOrder = "/api/order/list?search&page={0}&size=2" ;
-        private const string GetDriverInfoByOrderId = "/api/chatApp/listFindByOrderId/" ;
-        private const string ListFindByDeliveryId = "/api/orderDelivery/listFindByDeliveryId/" ;
-        private const string UserAgent = "Mozilla/5.0 (Linux; Android 11; 2201117TY) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Mobile Safari/537.36" ;
-        private const string ChatAppAdd = "/api/chatApp/add" ;
+    private const string Host2 = "http://103.153.215.232" ;
+    private const string Port = "9999" ;
+    private const string ObtainOrder = "/api/order/update/" ;
+    private const string LoginApi = "/api/delivery/login/" ;
+    private const string FindDelivery = "/api/delivery/" ;
+    private const string DriverSearchPage = "/api/delivery/list?search&page=" ;
+    private const string TotalOrder = "/api/dayDeliveryRevenue/listFindByDayDeliveryRevenue/?fromDate={0:yyyy-MM-dd}-00:00:00&toDate={1:yyyy-MM-dd}-23:59:59&deliveryId={2}" ;
+    private const string GetOrderDetailInfo = "/api/orderDetail/listFindByOrderId/" ;
+    private const string GetUnTakenOrder = "/api/order/list?search&page={0}&size=2" ;
+    private const string GetDriverInfoByOrderId = "/api/chatApp/listFindByOrderId/" ;
+    private const string ListFindByDeliveryId = "/api/orderDelivery/listFindByDeliveryId/" ;
+    private const string UserAgent = "Mozilla/5.0 (Linux; Android 11; 2201117TY) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Mobile Safari/537.36" ;
+    private const string ChatAppAdd = "/api/chatApp/add" ;
+        private const string Cors = "https://cors-anywhere.herokuapp.com" ;
+        private const string Origin = $"{Cors}/{Host2}:{Port}" ;
 
     private CancellationTokenSource _cts = new() ;
 
@@ -45,6 +47,7 @@ else {
         var (id, total) = await GetIdOfUnTakenOrder( -1, 12_000, _cts.Token ) ;
         var confirmId = await TakeOrder( id.ToString(), deliveryId.ToString() ) ;
         result = string.IsNullOrEmpty( confirmId ) ? "Failed" : confirmId ;
+        result = id.ToString();
     }
 
     public void Dispose()
@@ -68,6 +71,8 @@ else {
         header.Add( "Accept-Encoding", "gzip, deflate" ) ;
         header.Add( "Accept-Language", "en-US" ) ;
         header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+        header.Add( "Origin", "" ) ;
+        header.Add( "X-Requested-With", "" ) ;
     }
 
     private static void UpdatePostHeader( HttpRequestHeaders header, string body, bool randomUserAgent )
@@ -86,6 +91,8 @@ else {
         header.Add( "Accept-Encoding", "gzip, deflate" ) ;
         header.Add( "Accept-Language", "en-US" ) ;
         header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+        header.Add( "Origin", "" ) ;
+        header.Add( "X-Requested-With", "" ) ;
     }
 
     private async Task<string> TakeOrder( string orderId, string deliverId )
@@ -113,40 +120,39 @@ else {
 	""createdDate"": ""{3}""
   } }" ;
         var http = _clientFactory.CreateClient() ;
-        http.BaseAddress = new Uri( "http://103.153.215.232:9999" ) ;
+        http.BaseAddress = new Uri("https://cors-anywhere.herokuapp.com");
         var tempHttp = _clientFactory.CreateClient() ;
-        tempHttp.BaseAddress = new Uri( "http://103.153.215.232:9999" ) ;
-    // const string oldOrder = "Đơn hàng này đã có người khác tiếp nhận!" ;
-        var url = $"{ObtainOrder}" ;
-    // Notify
+        tempHttp.BaseAddress = new Uri("https://cors-anywhere.herokuapp.com");
+        // const string oldOrder = "Đơn hàng này đã có người khác tiếp nhận!" ;
+        // Notify
         UpdateOptionHeader( http.DefaultRequestHeaders, false ) ;
-        await http.SendAsync( new HttpRequestMessage( HttpMethod.Options, ObtainOrder ) ) ;
-    // Confirm
+        await http.SendAsync( new HttpRequestMessage( HttpMethod.Options, $"{Origin}{ObtainOrder}" ) ) ;
+        // Confirm
         var confirmBody = string.Format( ConfirmOrderBody, orderId, deliverId ) ;
         UpdatePostHeader( http.DefaultRequestHeaders, confirmBody, false ) ;
-        var response = await http.PostAsync( ObtainOrder, new StringContent( confirmBody, Encoding.UTF8, "application/json" ) ) ;
+        var response = await http.PostAsync( $"{Origin}{ObtainOrder}", new StringContent( confirmBody, Encoding.UTF8, "application/json" ) ) ;
         if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData
              || jsonData[ "error" ]?.Value<bool>() == true ) return string.Empty ;
-    // Get
+        // Get
         var getBody = string.Format( GetOrderBody, orderId, deliverId ) ;
-        response = await http.PostAsync( ObtainOrder, new StringContent( getBody, Encoding.UTF8, "application/json" ) ) ;
+        response = await http.PostAsync( $"{Origin}{ObtainOrder}", new StringContent( getBody, Encoding.UTF8, "application/json" ) ) ;
         if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData2
              || jsonData2[ "error" ]?.Value<bool>() == true ) return string.Empty ;
-    // Re-check
+        // Re-check
         UpdateGetHeader( tempHttp.DefaultRequestHeaders, true ) ;
-        response = await tempHttp.GetAsync( $"{ListFindByDeliveryId}{deliverId}" ) ;
+        response = await tempHttp.GetAsync( $"{Origin}{ListFindByDeliveryId}{deliverId}" ) ;
         if ( JsonConvert.DeserializeObject( await response.Content.ReadAsStringAsync() ) is not JObject jsonData3
              || jsonData3[ "resultData" ]?[ "id" ]?.Value<string>() != orderId ) return string.Empty ;
-    // Update chat
+        // Update chat
         UpdateOptionHeader( http.DefaultRequestHeaders, false ) ;
-        await http.SendAsync( new HttpRequestMessage( HttpMethod.Options, ChatAppAdd ) ) ;
-    // Confirm
+        await http.SendAsync( new HttpRequestMessage( HttpMethod.Options, $"{Origin}{ChatAppAdd}") ) ;
+        // Confirm
         var time = DateTime.UtcNow.ToString( "yyyy-MM-ddThh:mm:ss.fffZ" ) ;
         var receiverId = "-1" ;
         if ( jsonData3[ "resultData" ]?[ "customer" ]?[ "id" ]?.Value<int>() is not { } rid ) return string.Empty ;
         receiverId = rid.ToString() ;
         var chatBody = string.Format( ChatBody, orderId, deliverId, receiverId, time ) ;
-        await http.PostAsync( ChatAppAdd, new StringContent( chatBody, Encoding.UTF8, "application/json" ) ) ;
+        await http.PostAsync( $"{Origin}{ChatAppAdd}", new StringContent( chatBody, Encoding.UTF8, "application/json" ) ) ;
         return jsonData3[ "resultData" ]?.Value<string>() ;
     }
 
@@ -164,13 +170,15 @@ else {
         header.Add( "Accept-Encoding", "gzip, deflate" ) ;
         header.Add( "Accept-Language", "en-US" ) ;
         header.Add( "X-Requested-With", "com.ilokafood.deliver" ) ;
+        header.Add( "Origin", "" ) ;
+        header.Add( "X-Requested-With", "" ) ;
     }
 
     private async Task<(int newestOrderId, int totalOrderNumber)> GetIdOfUnTakenOrder( int guessingNumber, int minFeeShip, CancellationToken token )
     {
         try {
             var http = _clientFactory.CreateClient() ;
-            http.BaseAddress = new Uri( "http://103.153.215.232:9999" ) ;
+            http.BaseAddress = new Uri("https://cors-anywhere.herokuapp.com");
             UpdateGetHeader( http.DefaultRequestHeaders, true ) ;
 
             var random = new Random( DateTime.Now.Second ) ;
@@ -180,14 +188,14 @@ else {
                 if ( token.IsCancellationRequested ) break ;
 
                 var page = ( guessingNumber != -1 ? guessingNumber.ToString() : string.Empty ) ;
-                var url = $"/api/order/list?search&page={page}&size=2" ;
+                var url = $"{Origin}/api/order/list?search&page={page}&size=2";
                 var response = await http.GetAsync( url, token ) ;
 
                 if ( token.IsCancellationRequested ) break ;
-
+                Console.WriteLine(response);
                 if ( await response.Content.ReadAsStringAsync( token ) is not { } str ) return ( -1, -1 ) ;
                 if ( JsonConvert.DeserializeObject( str ) is not JObject jsonData ) return ( -1, -1 ) ;
-
+                Console.WriteLine(str);
                 var number = jsonData?[ "resultData" ]?[ "number" ]?.Value<int>() ?? -1 ;
                 var totalPages = jsonData?[ "resultData" ]?[ "totalPages" ]?.Value<int>() ?? -1 ;
 
